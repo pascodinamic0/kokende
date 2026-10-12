@@ -32,6 +32,12 @@ npm run dev
 npm run build
 ```
 
+## Live
+
+- **App**: https://kokende.vercel.app
+- **Démo**: https://kokende.vercel.app/demo
+- **GitHub**: https://github.com/pascodinamic0/kokende
+
 ## Démo
 
 Ouvrir `/demo` pour le trajet Gombe → Ndjili (Lumumba saturé vs alternate Matete).
