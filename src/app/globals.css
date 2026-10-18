@@ -110,3 +110,31 @@ select {
   margin: 10px 12px;
   font-size: 13px;
 }
+
+/* Legal pages */
+.prose-legal h2 {
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin: 1.5rem 0 0.5rem;
+  letter-spacing: -0.02em;
+}
+.prose-legal p,
+.prose-legal li {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--muted);
+  margin: 0.4rem 0;
+}
+.prose-legal ul {
+  padding-left: 1.15rem;
+  margin: 0.4rem 0;
+}
+.prose-legal strong {
+  color: var(--text);
+  font-weight: 700;
+}
+.prose-legal a {
+  color: var(--brand);
+  font-weight: 600;
+  text-decoration: underline;
+}

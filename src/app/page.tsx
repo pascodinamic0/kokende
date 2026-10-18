@@ -1,5 +1,5 @@
-import { KokendeApp } from '@/components/KokendeApp';
+import { Lander } from '@/components/Lander';
 
 export default function HomePage() {
-  return <KokendeApp />;
+  return <Lander />;
 }

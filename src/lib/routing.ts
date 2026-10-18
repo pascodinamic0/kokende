@@ -1,4 +1,10 @@
-import { SEGMENTS, getSegment, type JamLevel, type RoadSegment } from '@/data/arteries';
+import {
+  getSegment,
+  segmentsForVehicle,
+  type JamLevel,
+  type RoadSegment,
+  type VehicleMode,
+} from '@/data/route_segments';
 import { PLACES, getPlace, type LatLng } from '@/data/communes';
 import { haversineKm, mergeCoords } from './geo';
 import { jamCostMultiplier, describeJamWhy } from './jam';
@@ -20,9 +26,9 @@ export interface RouteOption {
   why: string;
   /** True when this is the recommended least-jam alternate. */
   voieLibre?: boolean;
+  vehicle: VehicleMode;
 }
 
-/** Node id = place id or synthetic "seg:endpoint" — we key graph by place ids near segment ends. */
 type NodeId = string;
 
 interface Edge {
@@ -41,7 +47,7 @@ function nearestPlace(coords: LatLng, maxKm = 2.5): string | null {
   return best?.id ?? null;
 }
 
-function buildGraph(): Map<NodeId, Edge[]> {
+function buildGraph(vehicle: VehicleMode): Map<NodeId, Edge[]> {
   const g = new Map<NodeId, Edge[]>();
   const add = (from: NodeId, edge: Edge) => {
     const list = g.get(from) ?? [];
@@ -49,7 +55,7 @@ function buildGraph(): Map<NodeId, Edge[]> {
     g.set(from, list);
   };
 
-  for (const seg of SEGMENTS) {
+  for (const seg of segmentsForVehicle(vehicle)) {
     const start = nearestPlace(seg.coords[0]!);
     const end = nearestPlace(seg.coords[seg.coords.length - 1]!);
     if (!start || !end || start === end) continue;
@@ -59,24 +65,30 @@ function buildGraph(): Map<NodeId, Edge[]> {
   return g;
 }
 
-const GRAPH = buildGraph();
+const GRAPH_CAR = buildGraph('car');
+const GRAPH_MOTO = buildGraph('moto');
+
+function graphFor(vehicle: VehicleMode) {
+  return vehicle === 'moto' ? GRAPH_MOTO : GRAPH_CAR;
+}
 
 function pathCost(
   segmentIds: string[],
   levels: Map<string, JamLevel>,
+  vehicle: VehicleMode,
 ): { km: number; time: number; maxJam: JamLevel } {
   let km = 0;
   let time = 0;
   let maxJam: JamLevel = 0;
-  const baseSpeedKmh = 28; // urban Kinshasa demo average
+  const baseSpeedKmh = vehicle === 'moto' ? 32 : 28;
   for (const id of segmentIds) {
     const seg = getSegment(id);
     if (!seg) continue;
     const jam = levels.get(id) ?? seg.seedJam;
     maxJam = Math.max(maxJam, jam) as JamLevel;
     km += seg.km;
-    // Always show jam-aware ETA so users see why voie libre wins
-    time += (seg.km / baseSpeedKmh) * 60 * jamCostMultiplier(jam);
+    time +=
+      (seg.km / baseSpeedKmh) * 60 * jamCostMultiplier(jam, vehicle, seg.kind);
   }
   return { km, time, maxJam };
 }
@@ -86,7 +98,9 @@ function dijkstra(
   to: NodeId,
   levels: Map<string, JamLevel>,
   mode: RouteMode,
+  vehicle: VehicleMode,
 ): string[] | null {
+  const graph = graphFor(vehicle);
   const dist = new Map<NodeId, number>();
   const prev = new Map<NodeId, { node: NodeId; segmentId: string }>();
   const pq: { node: NodeId; cost: number }[] = [{ node: from, cost: 0 }];
@@ -97,13 +111,19 @@ function dijkstra(
     const cur = pq.shift()!;
     if (cur.node === to) break;
     if (cur.cost > (dist.get(cur.node) ?? Infinity)) continue;
-    for (const e of GRAPH.get(cur.node) ?? []) {
+    for (const e of graph.get(cur.node) ?? []) {
       const seg = getSegment(e.segmentId)!;
       const jam = levels.get(e.segmentId) ?? seg.seedJam;
-      const edgeCost =
+      let edgeCost =
         mode === 'shortest'
           ? e.km
-          : e.km * jamCostMultiplier(jam);
+          : e.km * jamCostMultiplier(jam, vehicle, seg.kind);
+      // Moto least-jam: soft preference for wewa / informal / narrow
+      if (vehicle === 'moto' && mode === 'least-jam') {
+        if (seg.kind === 'wewa' || seg.kind === 'informal' || seg.kind === 'narrow') {
+          edgeCost *= 0.82;
+        }
+      }
       const next = cur.cost + edgeCost;
       if (next < (dist.get(e.to) ?? Infinity)) {
         dist.set(e.to, next);
@@ -144,7 +164,6 @@ function coordsForPath(segmentIds: string[], from: LatLng, to: LatLng): LatLng[]
     }
   }
   const merged = mergeCoords(parts);
-  // Ensure endpoints
   if (merged.length === 0) return [from, to];
   return [from, ...merged.slice(1, -1), to];
 }
@@ -161,6 +180,7 @@ export function computeRoutes(
   originId: string,
   destId: string,
   levels: Map<string, JamLevel>,
+  vehicle: VehicleMode = 'car',
 ): RouteOption[] {
   const from = resolvePlaceId(originId);
   const to = resolvePlaceId(destId);
@@ -169,42 +189,48 @@ export function computeRoutes(
   const origin = getPlace(from)!;
   const dest = getPlace(to)!;
 
-  const shortestSegs = dijkstra(from, to, levels, 'shortest');
-  const leastJamSegs = dijkstra(from, to, levels, 'least-jam');
+  const shortestSegs = dijkstra(from, to, levels, 'shortest', vehicle);
+  const leastJamSegs = dijkstra(from, to, levels, 'least-jam', vehicle);
 
   const options: RouteOption[] = [];
 
   if (shortestSegs?.length) {
     const segs = shortestSegs.map((id) => getSegment(id)!).filter(Boolean);
-    const { km, time, maxJam } = pathCost(shortestSegs, levels);
+    const { km, time, maxJam } = pathCost(shortestSegs, levels, vehicle);
     options.push({
       id: 'shortest',
       mode: 'shortest',
       label: 'Plus court',
-      subtitle: 'Distance minimale',
+      subtitle: vehicle === 'moto' ? 'Distance minimale (moto)' : 'Distance minimale',
       segmentIds: shortestSegs,
       coords: coordsForPath(shortestSegs, origin.coords, dest.coords),
       distanceKm: Math.round(km * 10) / 10,
       durationMin: Math.round(time),
       maxJam,
       why: describeJamWhy(segs, levels),
+      vehicle,
     });
   }
 
   if (leastJamSegs?.length) {
     const segs = leastJamSegs.map((id) => getSegment(id)!).filter(Boolean);
-    const { km, time, maxJam } = pathCost(leastJamSegs, levels);
+    const { km, time, maxJam } = pathCost(leastJamSegs, levels, vehicle);
     const sameAsShortest =
       shortestSegs &&
       shortestSegs.length === leastJamSegs.length &&
       shortestSegs.every((s, i) => s === leastJamSegs[i]);
+    const usesWewa = segs.some(
+      (s) => s.kind === 'wewa' || s.kind === 'informal' || s.kind === 'narrow',
+    );
     options.push({
       id: 'least-jam',
       mode: 'least-jam',
       label: sameAsShortest ? 'Moins embouteillé' : 'Voie libre',
       subtitle: sameAsShortest
         ? 'Même axe, coût trafic optimisé'
-        : 'Évite les corridors saturés',
+        : vehicle === 'moto' && usesWewa
+          ? 'Wewa / ruelles — contourne les files voiture'
+          : 'Évite les corridors saturés',
       segmentIds: leastJamSegs,
       coords: coordsForPath(leastJamSegs, origin.coords, dest.coords),
       distanceKm: Math.round(km * 10) / 10,
@@ -212,15 +238,21 @@ export function computeRoutes(
       maxJam,
       why: sameAsShortest
         ? describeJamWhy(segs, levels)
-        : `Évite ${describeJamWhy(
-            (shortestSegs ?? []).map((id) => getSegment(id)!).filter(Boolean),
-            levels,
-          )}`,
+        : usesWewa
+          ? `Via ${segs
+              .filter((s) => s.kind !== 'arterial')
+              .map((s) => s.name.split('(')[0]!.trim())
+              .slice(0, 2)
+              .join(' · ') || 'pistes moto'}`
+          : `Évite ${describeJamWhy(
+              (shortestSegs ?? []).map((id) => getSegment(id)!).filter(Boolean),
+              levels,
+            )}`,
       voieLibre: !sameAsShortest,
+      vehicle,
     });
   }
 
-  // Prefer showing least-jam first when it differs and is meaningfully faster
   return options.sort((a, b) => {
     if (a.voieLibre && !b.voieLibre) return -1;
     if (b.voieLibre && !a.voieLibre) return 1;
@@ -228,8 +260,17 @@ export function computeRoutes(
   });
 }
 
-export function segmentsNear(point: LatLng, maxKm = 1.5): RoadSegment[] {
-  return SEGMENTS
+export function segmentsNear(
+  point: LatLng,
+  maxKm = 1.5,
+  vehicle?: VehicleMode,
+): RoadSegment[] {
+  const pool = vehicle ? segmentsForVehicle(vehicle) : segmentsForVehicle('car').concat(
+    // include moto-only for reporting near point when no vehicle filter
+    segmentsForVehicle('moto').filter((s) => !s.vehicles.includes('car')),
+  );
+  const unique = new Map(pool.map((s) => [s.id, s]));
+  return [...unique.values()]
     .map((s) => ({
       s,
       d: Math.min(...s.coords.map((c) => haversineKm(point, c))),
