@@ -1,4 +1,10 @@
-import { SEGMENTS, type JamLevel, type RoadSegment } from '@/data/arteries';
+import {
+  ROUTE_SEGMENTS,
+  type JamLevel,
+  type RoadSegment,
+  type SegmentKind,
+  type VehicleMode,
+} from '@/data/route_segments';
 import { REPORT_DELTA, type JamReport } from './db';
 
 export function clampJam(n: number): JamLevel {
@@ -31,13 +37,12 @@ export function aggregateJamLevels(reports: JamReport[]): Map<string, JamLevel> 
   }
 
   const out = new Map<string, JamLevel>();
-  for (const seg of SEGMENTS) {
+  for (const seg of ROUTE_SEGMENTS) {
     const list = bySeg.get(seg.id) ?? [];
     if (list.length === 0) {
       out.set(seg.id, seg.seedJam);
       continue;
     }
-    // Weight recent reports more; average deltas over last N
     const avgDelta =
       list.reduce((sum, r) => sum + REPORT_DELTA[r.type], 0) / list.length;
     out.set(seg.id, clampJam(seg.seedJam + avgDelta));
@@ -45,9 +50,26 @@ export function aggregateJamLevels(reports: JamReport[]): Map<string, JamLevel> 
   return out;
 }
 
-export function jamCostMultiplier(level: JamLevel): number {
-  // Travel-time multiplier used by least-jam router
-  return [1.0, 1.25, 1.7, 2.6, 4.5][level];
+const CAR_MULT: number[] = [1.0, 1.25, 1.7, 2.6, 4.5];
+/** Moto on arterials — still slowed, but less than cars. */
+const MOTO_ARTERIAL: number[] = [1.0, 1.1, 1.35, 1.9, 3.0];
+/** Moto on wewa / informal / narrow — can filter past car queues. */
+const MOTO_FILTER: number[] = [1.0, 1.05, 1.15, 1.35, 1.8];
+
+/**
+ * Travel-time multiplier. Moto jam costs differ so a moto can bypass car jams
+ * when a wewa/informal/narrow alternate exists.
+ */
+export function jamCostMultiplier(
+  level: JamLevel,
+  vehicle: VehicleMode = 'car',
+  kind: SegmentKind = 'arterial',
+): number {
+  if (vehicle === 'car') return CAR_MULT[level]!;
+  if (kind === 'wewa' || kind === 'informal' || kind === 'narrow') {
+    return MOTO_FILTER[level]!;
+  }
+  return MOTO_ARTERIAL[level]!;
 }
 
 export function describeJamWhy(
@@ -61,6 +83,6 @@ export function describeJamWhy(
   if (jammed.length === 0) return 'Circulation globalement fluide sur cet itinéraire.';
   const top = jammed.slice(0, 2);
   return top
-    .map((x) => `${x.s.name.split('(')[0].trim()} : ${JAM_LABELS[x.lvl].toLowerCase()}`)
+    .map((x) => `${x.s.name.split('(')[0]!.trim()} : ${JAM_LABELS[x.lvl].toLowerCase()}`)
     .join(' · ');
 }

@@ -1,6 +1,9 @@
 'use client';
 
 import { type ReactNode, useEffect, useState } from 'react';
+import { CookieBanner } from './CookieBanner';
+
+const HAS_CLERK = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 export function Providers({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -25,5 +28,30 @@ export function Providers({ children }: { children: ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  const body = (
+    <>
+      {children}
+      <CookieBanner />
+    </>
+  );
+
+  if (HAS_CLERK) {
+    return <ClerkWrap>{body}</ClerkWrap>;
+  }
+
+  return body;
+}
+
+function ClerkWrap({ children }: { children: ReactNode }) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { ClerkProvider } = require('@clerk/nextjs') as typeof import('@clerk/nextjs');
+  return (
+    <ClerkProvider
+      signInUrl="/sign-in"
+      signUpUrl="/sign-in"
+      afterSignOutUrl="/"
+    >
+      {children}
+    </ClerkProvider>
+  );
 }

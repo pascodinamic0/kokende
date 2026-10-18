@@ -11,10 +11,10 @@ import {
   useMap,
 } from 'react-leaflet';
 import L from 'leaflet';
-import { SEGMENTS } from '@/data/arteries';
+import { segmentsForVehicle, type VehicleMode, type JamLevel } from '@/data/route_segments';
 import { KINSHASA_CENTER, DEFAULT_ZOOM, type LatLng } from '@/data/communes';
 import { JAM_COLORS, JAM_LABELS } from '@/lib/jam';
-import type { JamLevel } from '@/data/arteries';
+import { KIND_LABELS } from '@/data/route_segments';
 import type { RouteOption } from '@/lib/routing';
 import 'leaflet/dist/leaflet.css';
 
@@ -49,6 +49,7 @@ export interface MapViewProps {
   alternateRoute?: RouteOption | null;
   origin?: LatLng | null;
   destination?: LatLng | null;
+  vehicle?: VehicleMode;
   onSegmentClick?: (segmentId: string) => void;
   className?: string;
 }
@@ -60,9 +61,12 @@ export default function MapView({
   alternateRoute,
   origin,
   destination,
+  vehicle = 'car',
   onSegmentClick,
   className,
 }: MapViewProps) {
+  const segments = useMemo(() => segmentsForVehicle(vehicle), [vehicle]);
+
   const fitCoords = useMemo(() => {
     if (activeRoute?.coords?.length) return activeRoute.coords;
     if (origin && destination) return [origin, destination];
@@ -84,16 +88,18 @@ export default function MapView({
       />
 
       {showJamLayer &&
-        SEGMENTS.map((seg) => {
+        segments.map((seg) => {
           const lvl = jamLevels.get(seg.id) ?? seg.seedJam;
+          const isWewa = seg.kind !== 'arterial';
           return (
             <Polyline
               key={`jam-${seg.id}`}
               positions={seg.coords}
               pathOptions={{
                 color: JAM_COLORS[lvl],
-                weight: 5,
-                opacity: 0.85,
+                weight: isWewa ? 4 : 5,
+                opacity: isWewa ? 0.7 : 0.85,
+                dashArray: isWewa ? '4 6' : undefined,
                 lineCap: 'round',
               }}
               eventHandlers={{
@@ -103,7 +109,7 @@ export default function MapView({
               <Popup>
                 <strong>{seg.name}</strong>
                 <br />
-                Trafic : {JAM_LABELS[lvl]}
+                {KIND_LABELS[seg.kind]} · Trafic : {JAM_LABELS[lvl]}
               </Popup>
             </Polyline>
           );

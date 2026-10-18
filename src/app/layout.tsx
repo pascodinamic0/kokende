@@ -19,18 +19,18 @@ const splash = [
   [430, 932, 3],
   [360, 780, 3],
 ].map(([w, h, d]) => ({
-  url: `/splash/splash-${w * d}x${h * d}.png`,
+  url: `/splash/splash-${w! * d!}x${h! * d!}.png`,
   media: `(device-width: ${w}px) and (device-height: ${h}px) and (-webkit-device-pixel-ratio: ${d}) and (orientation: portrait)`,
 }));
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE),
   title: {
-    default: 'Kokende — Navigation anti-embouteillage à Kinshasa',
+    default: 'Kokende — Navigation voiture & moto anti-embouteillage à Kinshasa',
     template: '%s · Kokende',
   },
   description:
-    'Kokende (Lingala : aller) : itinéraires A→B qui préfèrent la voie libre à Kinshasa. OSM, signalements locaux, français-first.',
+    'Kokende (Lingala : aller) : itinéraires A→B voiture ou moto. En moto, privilégie wewa et ruelles. OSM, signalements locaux, français-first. Trafic seedé + crowdsource — pas de flotte GPS live.',
   applicationName: 'Kokende',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
@@ -49,8 +49,9 @@ export const metadata: Metadata = {
     apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
   },
   openGraph: {
-    title: 'Kokende — Moins d’embouteillage à Kinshasa',
-    description: 'Plus court vs voie libre. Signalements Embouteillage / Accident / Barrage / Route libre.',
+    title: 'Kokende — Voiture & moto, moins d’embouteillage à Kinshasa',
+    description:
+      'Plus court vs voie libre. Mode moto : wewa / ruelles. Signalements locaux. Pas de flotte GPS live.',
     locale: 'fr_CD',
     type: 'website',
   },
